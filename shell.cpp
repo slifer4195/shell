@@ -42,21 +42,21 @@ char** vec_to_char_array (vector<string>& parts){
 
 vector<string> split(string line, string seperators = " "){
     string newline = trim(line);
-    vector<string> splVec;
+
+    vector<string> vec;
     int index;
-    int count = 0;
+    int cnt = 0;
     for (int i = 0; i < newline.length(); i++){
-        if (newline[i] == ' '){
-            count += 1;
+        if (newline[i] == seperators.at(0)){
+            cnt += 1;
         }
     }
-
-    for (int j = 0; j < count + 1; j++){
+    for (int j = 0; j < cnt + 1; j++){
         index = newline.find(seperators);
-        splVec.push_back(newline.substr(0, index));
+        vec.push_back(newline.substr(0, index));
         newline =newline.substr(index+1);
     }
-    return splVec;
+    return vec;
 }
 
 bool input(string inputline ){
@@ -74,6 +74,40 @@ bool output(string inputline){
     }
     return false;
 }
+
+
+void quote(string inputline, int & start, int & end, bool single){
+    if (single){
+        start = inputline.find("'", 0);
+        end = inputline.find("'", start+1);
+    }
+    else{
+        start = inputline.find("\"", 0);
+        end = inputline.find("\"", start+1);
+    }
+}
+void printVector(vector<string> line){
+    for (int i = 0; i < line.size(); i++){
+        cout << line.at(i) << "--";
+    }
+    cout << endl;
+}
+
+
+bool singleQuote(string inputline){
+    for (int i = 0; i < inputline.size(); i++){
+        if (inputline.at(i) == '\'') return true;
+    }
+    return false;
+}
+
+bool doubleQuote(string inputline){
+    for (int i = 0; i < inputline.size(); i++){
+        if (inputline.at(i) == '\"') return true;
+    }
+    return false;
+}
+
 
 void execute(string inputline) {
     vector<string> parts = split(inputline);
@@ -129,59 +163,105 @@ string outputInput(string inputline){
     return command;
 }
 
+void changeDirectory(vector<string> command){
+    char** array = vec_to_char_array(command);
+    char s[100];
+    char* word = array[1];
+    chdir(word);
+    char* name = get_current_dir_name();
+}
+
+
 int main(){
     vector<int> bgs;
+    int in_def = dup(0);
+    int out_def = dup(1);
+  
+    const string username = getenv("USER");
     while (true){
+        dup2(in_def, 0);
+        dup2(out_def, 1);
         for (int i = 0 ; i < bgs.size();i++){
             if (waitpid (bgs [i], 0,WNOHANG) == bgs[i]){
                 bgs.erase (bgs.begin() + i);
                 i--;
             }
         }
-        cout << "My shells$: ";
+        time_t timeNow;
+        struct tm* timeInformation;
+
+        time(&timeNow);
+        timeInformation = localtime(&timeNow);
+        string showTime = asctime(timeInformation);
+        showTime.pop_back();
+        string prompt = username + ": " + showTime + " $";
+        cout << prompt;
         string inputline; 
         getline(cin, inputline);
         if (inputline == string("exit")){
             cout << "Bye!! End of shell" << endl;
             break;
         }
-        int pid = fork();
         bool bg = false;
         inputline = trim(inputline);
+        bool change = false;
 
         if (inputline[inputline.size()-1] == '&'){
             // cout << "BG process found" << endl;
             bg = true;
             inputline = inputline.substr (0, inputline.size() - 1);
         }
+        vector<string> changeDirectoryVec = split(inputline);
+        if (changeDirectoryVec.at(0) == "cd") {
+            change = true;
+            changeDirectory(changeDirectoryVec);
+        }
+        vector<string> c;
+        c = split(inputline, "|");
 
-        if (pid == 0){
-            // execute() 
-            string command;
-            vector<string> parts = split(inputline);
-            cout << output(inputline) << endl;
-            if (input(inputline) && output(inputline)) {
-                //redirect input and output
-                cout << "input and output" << endl;
-                command = outputInput(inputline);
-                execute(command);
+        // if (change == false){
+        for (int i = 0; i < c.size(); i++){
+            int pid;
+            int fd[2];
+            if (change == false){
+                pipe(fd);
+                pid = fork();
             }
-            else if (input(inputline)){
-                //redirect input
-                command = directInput(inputline);
-                execute(command);
-            }
-            else if (output(inputline)){
-                //redirect input
-                command = directOutput(inputline);
-                execute(command);
-            }
+            if (pid == 0){
+                if (i < c.size() - 1){
+                    dup2(fd[1], 1);
+                }
+                string command;
 
-        }else{
-            if (!bg)
-                waitpid(pid, 0,0);
-             else{
-                bgs.push_back(pid);
+                if (input(c[i]) && output(c[i])) {
+                    //redirect input and output
+                    command = outputInput(c[i]);
+                    execute(command);
+                }
+                else if (input(c[i])){
+                    //redirect input
+                    command = directInput(c[i]);
+                    execute(command);
+                }
+                else if (output(inputline)){
+                    //redirect output
+                    command = directOutput(c[i]);
+                    execute(command);
+                }
+                else{
+                    execute(c[i]);
+                }
+            }else{
+                if (!bg)
+                    if (i < c.size() - 1){
+                        dup2(fd[0], 0);
+                        close(fd[1]);
+                    }else{
+                        waitpid(pid, 0,0);
+                    }
+                else{
+                    bgs.push_back(pid);
+                }
             }
         }
     }

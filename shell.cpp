@@ -7,7 +7,109 @@
 #include <stdlib.h>
 #include <vector>
 #include <fcntl.h>
+#include <sstream>
+#include <iomanip>
+
 using namespace std;
+
+
+bool isQuote(char a){
+  return a == '\'' || a == '\"';
+}
+
+void splitPipes(string inputline, vector<string>& c){
+  stringstream ss(inputline);
+  string line;
+  string total;
+
+  while (!ss.eof()){
+    char a = ss.peek();
+    bool isquote = isQuote(a);
+
+    if (isquote){
+      ss >> quoted(line, a);
+      line = a + line + a;
+
+    }
+    else{
+      ss >> line;
+      if (line == "|"){
+        c.push_back(total);
+        total.clear();
+        continue;
+      }
+    }
+    ss >> ws;
+    if (total.size() != 0){
+      total += " " + line;
+    }
+    else{
+      total = line;
+    }
+    
+  }
+
+  if (total.size() > 0){
+    c.push_back(total);
+  }
+}
+
+void resetSS(stringstream& ss, size_t curPos, vector<string>& parts, string& inputline, string line, char redir){
+  string prev = line.substr(0, line.find(redir));
+  if (prev.size() > 0){
+    parts.push_back(prev);
+  }
+  size_t newlinePos = curPos + prev.size();
+  string newline = inputline.substr(newlinePos);
+  newline = newline.substr(0, 1) + " " + newline.substr(1);
+  inputline = newline;
+  ss.str(inputline);
+  ss.clear();  
+}
+
+
+void parseString(string inputline, vector<string>& parts, string& InputFile, string&OutputFile){
+  stringstream ss(inputline);
+  string line;
+
+  while(!ss.eof()){
+
+    char a = ss.peek();
+    bool isquote = isQuote(a);
+
+    if (isquote){
+      ss >> quoted(line, a);
+    }
+    else{
+
+      size_t curPos = ss.tellg();
+
+      ss >> line;
+      
+      if (line == "<"){
+        ss >> ws >> InputFile;
+        continue;
+      }
+      else if (line == ">"){
+        ss >> ws >> OutputFile;
+        continue;
+      }
+
+      if (line.find('<') != string::npos){
+        resetSS(ss, curPos, parts, inputline, line, '<');
+        continue;
+      }
+      else if (line.find('>') != string::npos){
+        resetSS(ss, curPos, parts, inputline, line, '>');
+        continue;
+      }
+    }
+    ss >> ws;
+    parts.push_back(line);
+  }
+}
+
+
 
 string trim (string input){
     int i = 0;
@@ -108,47 +210,33 @@ bool doubleQuote(string inputline){
     return false;
 }
 
-
-void execute(string inputline) {
-    vector<string> parts = split(inputline);
+void execute(vector<string> parts) {
     char** args = vec_to_char_array(parts);
     int fd;
     execvp(args [0], args);
 }
 
-string directOutput(string inputline){
-    string seperator = ">";
-    vector<string> parts = split(inputline, seperator);
-    string command = parts.at(0);
-    char* output = (char*)parts.at(1).c_str();
+void directOutput(string Outputfile){
+    char* output = (char*)Outputfile.c_str();
     int fd = open(output,O_CREAT|O_WRONLY|O_TRUNC,
     S_IRUSR| S_IWUSR | S_IRGRP |S_IROTH);
     dup2(fd, 1);
     close(fd);
-    return command;
 }
 
-string directInput(string inputline){
-    string seperator = "<";
-    vector<string> parts = split(inputline, seperator);
-    string command = parts.at(0);
-    char* output = (char*)parts.at(1).c_str();
+void directInput(string Inputfile){
+
+    char* output = (char*)Inputfile.c_str();
     int fd = open(output,O_CREAT|O_RDONLY,
     S_IRUSR|S_IRGRP |S_IROTH);
     dup2(fd, 0);
     close(fd);
-    return command;
 }
 
-string outputInput(string inputline){
-    string seperatorOutput = ">";
-    vector<string> parts = split(inputline, seperatorOutput);//parts(0) grep rcu < a parts(1)  b
+void outputInput(string Inputfile, string Outputfile){
 
-    string seperatorInput = "<";
-    vector<string> line = split(parts.at(0), seperatorInput);//parts(0) grep rcu  parts(1) a
-
-    char* input = (char*)line.at(1).c_str();  // a
-    char* output = (char*)parts.at(1).c_str();  // a
+    char* input = (char*)Inputfile.c_str();  // a
+    char* output = (char*)Outputfile.c_str();  // a
 
     int fd1 = open(input,O_CREAT|O_RDONLY, 
     S_IRUSR|S_IRGRP |S_IROTH);
@@ -157,10 +245,6 @@ string outputInput(string inputline){
     S_IRUSR| S_IWUSR | S_IRGRP |S_IROTH);
     dup2(fd1, 0);
     dup2(fd2, 1);
-    execute(line.at(0));
-    
-    string command = line.at(0);
-    return command;
 }
 
 void changeDirectory(vector<string> command){
@@ -211,13 +295,18 @@ int main(){
             bg = true;
             inputline = inputline.substr (0, inputline.size() - 1);
         }
+
+
         vector<string> changeDirectoryVec = split(inputline);
         if (changeDirectoryVec.at(0) == "cd") {
             change = true;
             changeDirectory(changeDirectoryVec);
         }
+
+
+
         vector<string> c;
-        c = split(inputline, "|");
+        splitPipes(inputline, c);
 
         // if (change == false){
         for (int i = 0; i < c.size(); i++){
@@ -233,23 +322,27 @@ int main(){
                 }
                 string command;
 
-                if (input(c[i]) && output(c[i])) {
+                string InputFile = "", Outputfile = "";
+                vector<string> parts;
+                parseString(c[i], parts, InputFile, Outputfile);
+
+                if (InputFile != "" && Outputfile != "") {
                     //redirect input and output
-                    command = outputInput(c[i]);
-                    execute(command);
+                    outputInput(InputFile, Outputfile);
+                    execute(parts);
                 }
-                else if (input(c[i])){
+                else if (InputFile != ""){
                     //redirect input
-                    command = directInput(c[i]);
-                    execute(command);
+                    directInput(InputFile);
+                    execute(parts);
                 }
-                else if (output(inputline)){
+                else if (Outputfile != ""){
                     //redirect output
-                    command = directOutput(c[i]);
-                    execute(command);
+                    directOutput(Outputfile);
+                    execute(parts);
                 }
                 else{
-                    execute(c[i]);
+                    execute(parts);
                 }
             }else{
                 if (!bg)

@@ -247,20 +247,25 @@ void outputInput(string Inputfile, string Outputfile){
     dup2(fd2, 1);
 }
 
-void changeDirectory(vector<string> command){
+
+void changeDirectory(vector<string> command, char* &prevDirectory){
     char** array = vec_to_char_array(command);
     char s[100];
     char* word = array[1];
-    chdir(word);
+    if (command.at(1) == "-"){
+        chdir(prevDirectory);
+    }else{
+        prevDirectory = get_current_dir_name();
+        chdir(word);
+    }
     char* name = get_current_dir_name();
 }
-
 
 int main(){
     vector<int> bgs;
     int in_def = dup(0);
     int out_def = dup(1);
-  
+    char* name = get_current_dir_name();
     const string username = getenv("USER");
     while (true){
         dup2(in_def, 0);
@@ -278,7 +283,7 @@ int main(){
         timeInformation = localtime(&timeNow);
         string showTime = asctime(timeInformation);
         showTime.pop_back();
-        string prompt = username + ": " + showTime + " $";
+        string prompt = username + ": " + showTime + " $ ";
         cout << prompt;
         string inputline; 
         getline(cin, inputline);
@@ -296,13 +301,11 @@ int main(){
             inputline = inputline.substr (0, inputline.size() - 1);
         }
 
-
         vector<string> changeDirectoryVec = split(inputline);
         if (changeDirectoryVec.at(0) == "cd") {
             change = true;
-            changeDirectory(changeDirectoryVec);
+            changeDirectory(changeDirectoryVec, name);
         }
-
 
 
         vector<string> c;
